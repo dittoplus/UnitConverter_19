@@ -102,7 +102,6 @@ def convert_use_case() -> Callable[[], object]:
 def test_u_in_01_empty_string_raises_format_error(
     input_parser: Callable[[], object],
 ) -> None:
-    pytest.fail("GREEN 구현 전 UI 트랙 RED 확인")
     parser = input_parser()
 
     with pytest.raises(ValueError) as exc_info:
@@ -123,7 +122,6 @@ Then: ValueError is raised and message contains ERR_FORMAT text.
 def test_u_in_02_missing_colon_raises_format_error_with_message(
     input_parser: Callable[[], object],
 ) -> None:
-    pytest.fail("GREEN 구현 전 UI 트랙 RED 확인")
     parser = input_parser()
 
     with pytest.raises(ValueError) as exc_info:
@@ -158,7 +156,6 @@ def test_u_in_03_negative_value_rejected_by_validator(
     input_validator: Callable[[], object],
     raw_input: str,
 ) -> None:
-    pytest.fail("GREEN 구현 전 UI 트랙 RED 확인")
     parser = input_parser()
     validator = input_validator()
 
@@ -185,7 +182,6 @@ def test_u_out_01_valid_input_returns_all_unit_output_skeleton(
     convert_use_case: Callable[[], object],
     table_formatter: Callable[[], object],
 ) -> None:
-    pytest.fail("GREEN 구현 전 UI 트랙 RED 확인")
     parser = input_parser()
     use_case = convert_use_case()
     formatter = table_formatter()

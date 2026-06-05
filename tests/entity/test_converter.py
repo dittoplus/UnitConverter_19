@@ -67,7 +67,6 @@ def sample_registry() -> Callable[[], object]:
 def test_d_cnv_01_one_feet_to_meter_within_tolerance(
     sample_registry: Callable[[], object],
 ) -> None:
-    pytest.fail("GREEN 구현 전 RED 확인")
     from entity.converter import ConversionService
 
     registry = sample_registry()
@@ -96,7 +95,6 @@ Then: meter result is 0.3048 within absolute tolerance (1 / 3.28084).
 def test_d_cnv_02_convert_all_meter_to_feet_five_decimal_places(
     sample_registry: Callable[[], object],
 ) -> None:
-    pytest.fail("GREEN 구현 전 RED 확인")
     from entity.converter import ConversionService
 
     registry = sample_registry()
@@ -124,7 +122,6 @@ Then: feet equals 8.20210 when rounded to 5 decimal places (2.5 × 3.28084).
 def test_d_cnv_03_feet_to_yard_matches_meter_hub_path(
     sample_registry: Callable[[], object],
 ) -> None:
-    pytest.fail("GREEN 구현 전 RED 확인")
     from entity.converter import ConversionService
 
     registry = sample_registry()

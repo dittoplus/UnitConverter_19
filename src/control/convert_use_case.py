@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from boundary.input.parser import ConversionRequest
-from entity.converter import ConversionResult, ConversionService
+from entity.converter import ConversionService
+from entity.models import ConversionRequest, ConversionResult
 from entity.registry import UnitRegistry
 
 
@@ -19,12 +19,25 @@ class ConvertUseCaseResult:
 
 
 class ConvertUseCase:
-    """Application entry for converting one value to every registered unit."""
+    """Application entry for converting one value to every registered unit (FR-02)."""
 
     def __init__(self, registry: UnitRegistry) -> None:
-        self._service = ConversionService(registry)
+        """Wire entity services from a shared registry instance.
+
+        Args:
+            registry: Unit table shared with registration and conversion flows.
+        """
+        self._service: ConversionService = ConversionService(registry)
 
     def execute(self, request: ConversionRequest) -> ConvertUseCaseResult:
+        """Run hub conversion for a validated parse result.
+
+        Args:
+            request: Parsed unit and value (validation is a boundary concern).
+
+        Returns:
+            Source fields plus one conversion row per registered unit.
+        """
         return ConvertUseCaseResult(
             unit=request.unit,
             value=request.value,

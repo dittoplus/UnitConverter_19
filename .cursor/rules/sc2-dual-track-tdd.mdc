@@ -1,0 +1,16 @@
+---
+description: SC-2 Dual-Track TDD — entity tests before control/boundary
+alwaysApply: true
+---
+
+# SC-2: Dual-Track ARRR
+
+Tracks run **sequentially**, not in parallel:
+
+1. `tests/entity/` → `src/entity/` (Domain Track — **first**)
+2. `tests/control/` → `src/control/` (after entity green)
+3. `tests/boundary/` → `src/boundary/` (after relevant control green)
+
+Per slice: **Arrange** (PRD criteria) → **RED** (failing test) → **GREEN** (minimal code) → **Refactor**.
+
+**MUST NOT:** start CLI/boundary before Entity conversion tests pass; assume unimplemented Entity APIs in boundary tests.

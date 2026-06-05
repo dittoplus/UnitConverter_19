@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| 문서 버전 | 0.1 (초안) |
+| 문서 버전 | 0.2 |
 | 작성일 | 2026-06-05 |
 | 상태 | Draft |
 | 관련 문서 | [README.md](../README.md), [01.UnitConverter_Spec_Report.md](../Report/01.UnitConverter_Spec_Report.md) |
@@ -88,9 +88,9 @@
 | BR-02 | `1 meter = 3.28084 feet` |
 | BR-03 | `1 meter = 1.09361 yard` |
 | BR-04 | feet ↔ yard 등 파생 단위 간 변환은 **meter를 허브**로 계산한다. |
-| BR-05 | 등록된 단위마다 `1 {unit} = {ratio} meter` 형태의 비율을 갖는다. |
+| BR-05 | Registry·`config/units.json`에 저장하는 비율은 **from_meter_factor** — `1 meter = {factor} {unit}` (base `meter`는 1.0). BR-02·03과 동일 의미. |
 | BR-06 | 길이 값은 **0 이상**만 허용한다 (음수 불가). |
-| BR-07 | 표 형식 출력 시 소수 **1자리 반올림** (README 예시 기준). JSON/CSV는 정책에 따라 full precision 또는 동일 자릿수 적용. |
+| BR-07 | 표 형식 출력 시 소수 **1자리 반올림** (README 예시 기준). JSON/CSV는 domain full precision, formatter에서 반올림(R-04). |
 
 ---
 
@@ -121,7 +121,7 @@
 | NFR-04 | 품질 | 잘못된 형식 거부 | 콜론 없음, 빈 unit, 비숫자 value 처리 |
 | NFR-05 | 품질 | 미등록 단위 거부 | Registry에 없는 unit명 오류 |
 | NFR-06 | 테스트 | I/O와 도메인 분리 | domain/application 계층은 mock I/O 없이 단위 테스트 가능 |
-| NFR-07 | 유지보수 | 의존성 방향 | domain ← application ← cli; domain은 outer layer 미참조 |
+| NFR-07 | 유지보수 | 의존성 방향 | boundary → control → entity; entity는 outer layer 미참조 |
 
 ---
 
@@ -129,18 +129,35 @@
 
 ### 6.1 패키지 구조
 
+**물리 경로 SSOT (구현·테스트):** `src/{entity, control, boundary}` + `tests/{entity, control, boundary, integration}`  
+**논리 레이어 (설계·FR 매핑):** domain / application / input / output / infrastructure / cli
+
 ```
-unit_converter/
-├── domain/           # 변환 규칙, Registry, Models
-├── application/      # UseCase (변환, 단위 등록)
-├── input/            # Parser, Validator
-├── output/           # Table/JSON/CSV Formatter
-├── infrastructure/   # Config Loader (JSON/YAML)
-└── cli/              # 진입점, I/O
+src/
+├── entity/           # domain — Registry, ConversionService, Models, exceptions
+├── control/          # application — ConvertUseCase, RegisterUnitUseCase
+└── boundary/         # input + output + infrastructure + cli
+    ├── input/        # Parser, Validator
+    ├── output/       # Table/JSON/CSV Formatter
+    ├── infrastructure/  # Config Loader (JSON/YAML)
+    └── cli/          # 진입점, I/O
 
 config/units.json
-tests/unit/, tests/integration/
+tests/entity/, tests/control/, tests/boundary/, tests/integration/
 ```
+
+#### 6.1.1 논리 레이어 ↔ ECB 물리 경로 매핑
+
+| 논리 레이어 (PRD/Report) | ECB 레이어 | 물리 경로 | 대표 모듈 |
+|--------------------------|------------|-----------|-----------|
+| domain | Entity | `src/entity/` | `UnitRegistry`, `ConversionService` |
+| application | Control | `src/control/` | `ConvertUseCase`, `RegisterUnitUseCase` |
+| input | Boundary | `src/boundary/input/` | `InputParser`, `InputValidator` |
+| output | Boundary | `src/boundary/output/` | `TableFormatter`, `JsonFormatter` |
+| infrastructure | Boundary | `src/boundary/infrastructure/` | `JsonConfigLoader` |
+| cli | Boundary | `src/boundary/cli/` | `CliApp` |
+
+의존성: `boundary → control → entity` (NFR-07). Cursor SC-1~4는 [`.cursor/rules/`](../.cursor/rules/)에서 강제한다.
 
 ### 6.2 FR/NFR 레이어 매핑
 
@@ -173,8 +190,10 @@ tests/unit/, tests/integration/
 
 | 항목 | 값 |
 |------|-----|
-| 형식 | `1 {unit} = {ratio} meter` |
+| 형식 | `1 {unit} = {meters_per_unit} meter` |
 | 예시 | `1 cubit = 0.4572 meter` |
+
+등록 시 Registry는 `from_meter_factor = 1 / meters_per_unit`으로 저장한다 (BR-05).
 
 ### 7.3 설정 파일 (JSON)
 
@@ -189,7 +208,22 @@ tests/unit/, tests/integration/
 }
 ```
 
-> `units` 값: 1 해당 단위 = N meter
+| 필드 | 의미 |
+|------|------|
+| `base_unit` | 허브 단위 (항상 `meter`, BR-01) |
+| `units.{name}` | **from_meter_factor** — `1 meter = {value} {name}` (BR-02·03·05) |
+
+**Registry 변환 API (SSOT):**
+
+```
+to_base(value, unit)   = value            if unit == base_unit
+                       = value / factor   otherwise
+
+from_base(base, unit)  = base             if unit == base_unit
+                       = base * factor    otherwise
+```
+
+예: `2.5 meter → feet` = `2.5 × 3.28084` = `8.2021…` → 표 출력 `8.2 feet` (BR-07).
 
 ### 7.4 CLI (초안)
 
@@ -230,9 +264,9 @@ python -m unit_converter --config config/units.yaml
 | 단계 | README Activity | 산출물 |
 |------|-----------------|--------|
 | 1 | 문제 코드 분석 | Spec Report, PRD (본 문서) |
-| 2 | 기본·품질 요구 구현 | domain, input, application, cli |
-| 3 | TC 구현 | tests/unit |
-| 4 | 추가 요구 구현 | infrastructure, output, FR-06~08 |
+| 2 | 기본·품질 요구 구현 | `src/entity/`, `src/control/`, `src/boundary/input|cli` |
+| 3 | TC 구현 | `tests/entity/`, `tests/control/`, `tests/boundary/` |
+| 4 | 추가 요구 구현 | `src/boundary/infrastructure|output`, FR-06~08 |
 | 5 | 회고·발표 | 달성도 체크리스트 |
 
 ---
@@ -252,3 +286,4 @@ python -m unit_converter --config config/units.yaml
 | 버전 | 일자 | 변경 내용 |
 |------|------|-----------|
 | 0.1 | 2026-06-05 | 초안 작성 (레거시 분석·설계 논의 반영) |
+| 0.2 | 2026-06-05 | ECB 물리 경로 SSOT·from_meter_factor(BR-05) 통일, §7.3 변환 API 명시 |

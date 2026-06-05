@@ -1,0 +1,9 @@
+{
+  "base_unit": "meter",
+  "units": {
+    "meter": 1.0,
+    "feet": 3.28084,
+    "yard": 1.09361
+  },
+  "_comment": "units values are from_meter_factor: 1 meter = {value} {unit} (PRD BR-05, §7.3)"
+}

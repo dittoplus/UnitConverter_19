@@ -2,9 +2,9 @@
 
 > **Authority:** [README.md](README.md) · [docs/PRD.md](docs/PRD.md) · [Report/01.UnitConverter_Spec_Report.md](Report/01.UnitConverter_Spec_Report.md)
 >
-> **Purpose:** AI 에이전트가 레거시 `UnitConverter.py`를 리팩터링할 때 **바이브 코딩(Vibe Coding)** — 요구사항·테스트·아키텍처 없이 즉흥 구현 — 을 하지 못하도록 **엄격한 제약(Strict Constraints)** 을 부과한다.
+> **Cursor 적용:** SC-1~4 핵심은 [`.cursor/rules/`](.cursor/rules/) (`alwaysApply: true`)에서 강제한다. 본 문서는 전체 헌법·플레이북 SSOT이다.
 >
-> 본 문서의 **Strict Constraints** 섹션은 다른 모든 지침보다 우선한다.
+> **Purpose:** AI 에이전트가 레거시 `UnitConverter.py`를 리팩터링할 때 **바이브 코딩**을 하지 못하도록 **Strict Constraints**를 부과한다. SC-1~4는 다른 모든 지침보다 우선한다.
 
 ---
 
@@ -24,8 +24,9 @@
 | BR-02 | `1 meter = 3.28084 feet` |
 | BR-03 | `1 meter = 1.09361 yard` |
 | BR-04 | feet ↔ yard 등 파생 변환은 **meter 허브** 경유 |
-| BR-05 | 길이 값은 **0 이상** (음수 불가) |
-| BR-06 | 표 출력 예시: 소수 1자리 반올림 (`8.2 feet`, `2.7 yard`) |
+| BR-05 | Registry·JSON 비율 = **from_meter_factor** (`1 meter = {factor} {unit}`). PRD §7.3 |
+| BR-06 | 길이 값은 **0 이상** (음수 불가) |
+| BR-07 | 표 출력: 소수 1자리 반올림 (`8.2 feet`, `2.7 yard`) |
 
 ### 1.3 Functional Scope
 
@@ -55,6 +56,8 @@
 **ECB 패턴을 철저히 준수한다.** 레이어 경계를 넘는 책임 혼합·역방향 의존은 금지한다.
 
 #### Layer Definitions
+
+물리 경로 SSOT는 [docs/PRD.md](docs/PRD.md) §6.1.1과 동일하다.
 
 | Layer | Path | Responsibility | Examples (Unit Converter) |
 |-------|------|----------------|---------------------------|
@@ -204,7 +207,8 @@ from unittest import mock
 
 ```
 UnitConverter_19/
-├── .cursorrules              # 본 헌법
+├── .cursorrules              # 전체 헌법 SSOT
+├── .cursor/rules/            # SC-1~4 (alwaysApply) — Cursor 자동 적용
 ├── README.md
 ├── docs/PRD.md
 ├── Report/
@@ -236,7 +240,7 @@ AI는 아래 슬라이스 순서를 **임의 변경하지 않는다.** 각 슬�
 | 3 | Domain exceptions | UnknownUnitError, InvalidValueError | — | — |
 | 4 | ConvertUseCase | (entity green) | orchestrate convert | — |
 | 5 | Input parse/validate | — | — | parser, validator NFR-03~05 |
-| 6 | Table output | — | — | TableFormatter BR-06 |
+| 6 | Table output | — | — | TableFormatter BR-07 |
 | 7 | Config load | — | — | JsonConfigLoader → Registry |
 | 8 | Register unit | Registry.register | RegisterUnitUseCase | registration parser |
 | 9 | JSON/CSV format | — | — | JsonFormatter, CsvFormatter |
@@ -310,7 +314,7 @@ refactor: extract UnitRegistry from ConversionService
 - [ ] `tests/entity/` — mock 없음, RED→GREEN 이력
 - [ ] ECB 레이어 올바름, 역방향 의존 없음
 - [ ] pytest green
-- [ ] README 비즈니스 규칙 (BR-01~06) 충족
+- [ ] README 비즈니스 규칙 (BR-01~07) 충족
 - [ ] 바이브 코딩 없음 (테스트 선행 증거)
 
 ---

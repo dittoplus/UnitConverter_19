@@ -1,0 +1,23 @@
+---
+description: SC-4 Pure domain — no mocking in tests/entity/
+alwaysApply: true
+---
+
+# SC-4: No Mocking in `tests/entity/`
+
+**Forbidden in `tests/entity/`:**
+```python
+from unittest.mock import Mock, MagicMock, patch
+from unittest import mock
+```
+
+Use **real** `UnitRegistry`, `ConversionService` with explicit fixture data.
+
+| Test dir | Mocking |
+|----------|---------|
+| `tests/entity/` | **None** |
+| `tests/control/` | Entity real; boundary ports may use fakes |
+| `tests/boundary/` | `tmp_path` for files; inject real Entity |
+| `tests/integration/` | minimize mocks |
+
+Conversion ratios use **from_meter_factor** (PRD BR-05): `to_base = value/factor`, `from_base = base*factor`.

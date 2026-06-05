@@ -1,0 +1,23 @@
+---
+description: SC-1 ECB architecture — entity/control/boundary layers and dependency rule
+alwaysApply: true
+---
+
+# SC-1: Entity–Control–Boundary (ECB)
+
+Physical path SSOT: [docs/PRD.md](docs/PRD.md) §6.1.
+
+| ECB | Path | Role |
+|-----|------|------|
+| Entity | `src/entity/` | Registry, ConversionService, domain models/exceptions — **no I/O** |
+| Control | `src/control/` | Use cases — orchestrates Entity only |
+| Boundary | `src/boundary/` | Parser, Validator, Formatters, Config loaders, CLI |
+
+```
+boundary → control → entity
+entity   → (no imports from control or boundary)
+```
+
+**MUST NOT:** `elif unit == "..."` chains; hardcoded ratios in Boundary; I/O in Entity.
+
+Logical PRD layers map to ECB: domain→entity, application→control, input/output/infrastructure/cli→boundary.

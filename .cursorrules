@@ -1,0 +1,331 @@
+# Unit Converter — Harness Engineering Constitution
+
+> **Authority:** [README.md](README.md) · [docs/PRD.md](docs/PRD.md) · [Report/01.UnitConverter_Spec_Report.md](Report/01.UnitConverter_Spec_Report.md)
+>
+> **Cursor 적용:** SC-1~4 핵심은 [`.cursor/rules/`](.cursor/rules/) (`alwaysApply: true`)에서 강제한다. 본 문서는 전체 헌법·플레이북 SSOT이다.
+>
+> **Purpose:** AI 에이전트가 레거시 `UnitConverter.py`를 리팩터링할 때 **바이브 코딩**을 하지 못하도록 **Strict Constraints**를 부과한다. SC-1~4는 다른 모든 지침보다 우선한다.
+
+---
+
+## 1. Project Context (from README)
+
+### 1.1 Mission
+
+- 사용자 입력 `단위:값` (예: `meter:2.5`)을 **등록된 모든 길이 단위**로 변환하여 출력한다.
+- 새 단위 추가 시 **기존 핵심 코드 변경을 최소화**한다 (OCP).
+- **각 단위 변환·입력 검증**은 pytest로 검증한다.
+
+### 1.2 Business Rules (Non-Negotiable)
+
+| ID | Rule |
+|----|------|
+| BR-01 | 기준 단위(base) = `meter` |
+| BR-02 | `1 meter = 3.28084 feet` |
+| BR-03 | `1 meter = 1.09361 yard` |
+| BR-04 | feet ↔ yard 등 파생 변환은 **meter 허브** 경유 |
+| BR-05 | Registry·JSON 비율 = **from_meter_factor** (`1 meter = {factor} {unit}`). PRD §7.3 |
+| BR-06 | 길이 값은 **0 이상** (음수 불가) |
+| BR-07 | 표 출력: 소수 1자리 반올림 (`8.2 feet`, `2.7 yard`) |
+
+### 1.3 Functional Scope
+
+| Priority | Feature |
+|----------|---------|
+| P0 | `unit:value` 파싱·검증·전 단위 변환 (meter/feet/yard) |
+| P0 | OCP · SRP · 입력 검증 (음수, 형식, 미등록 단위) |
+| P1 | 설정 외부화 (JSON/YAML) |
+| P1 | 동적 단위 등록 (`1 cubit = 0.4572 meter`) |
+| P1 | 출력 포맷: table / JSON / CSV |
+
+### 1.4 Legacy Reference
+
+- `UnitConverter.py`는 **분석·하위 호환 참고용**이다.
+- 레거시의 God Function·Magic Number·elif 체인 패턴을 **새 코드에 복제하지 않는다**.
+
+---
+
+## 2. Strict Constraints (MUST — Violation = Stop Work)
+
+아래 4원칙은 **절대 예외 없음**. 위반 시 AI는 구현을 중단하고, 위반 내용과 올바른 순서를 사용자에게 보고한다.
+
+---
+
+### SC-1. Architecture: Entity–Control–Boundary (ECB)
+
+**ECB 패턴을 철저히 준수한다.** 레이어 경계를 넘는 책임 혼합·역방향 의존은 금지한다.
+
+#### Layer Definitions
+
+물리 경로 SSOT는 [docs/PRD.md](docs/PRD.md) §6.1.1과 동일하다.
+
+| Layer | Path | Responsibility | Examples (Unit Converter) |
+|-------|------|----------------|---------------------------|
+| **Entity** | `src/entity/` | 순수 도메인 로직, 변환 비율·불변식, Registry 상태 | `UnitRegistry`, `ConversionService`, `ConversionResult`, domain exceptions |
+| **Control** | `src/control/` | 워크플로우 조율, Use Case, Entity 조합 | `ConvertUseCase`, `RegisterUnitUseCase` |
+| **Boundary** | `src/boundary/` | I/O 어댑터: 입력 파싱·검증, 출력 포맷팅, 설정 로드 | `InputParser`, `InputValidator`, `TableFormatter`, `JsonConfigLoader`, `CliApp` |
+
+#### Dependency Rule (Hard)
+
+```
+boundary → control → entity
+entity   → (imports nothing from control or boundary)
+control  → entity only (no boundary imports)
+```
+
+| MUST | MUST NOT |
+|------|----------|
+| Entity는 `input()`, `print()`, 파일 I/O, argparse 없음 | Entity에서 `pathlib`, `json`, `sys` 등 I/O 사용 |
+| Control는 Entity를 조합해 유스케이스 완성 | Control에서 문자열 포맷·CLI 프롬프트 처리 |
+| Boundary는 파싱/검증/포맷/설정 로드만 | Boundary에서 변환 공식·비율 하드코딩 |
+| 새 단위·포맷·설정 형식 = Boundary/Entity 확장점 추가 | Entity/Control에 `elif unit == "..."` 추가 |
+
+#### ECB ↔ README Quality Mapping
+
+| README | ECB Layer |
+|--------|-----------|
+| OCP (확장에 열림) | Entity Registry + Boundary Formatter/Loader Protocol |
+| SRP (단일 책임) | Parser ≠ Validator ≠ Converter ≠ Formatter |
+| 입력 검증 | Boundary (`InputValidator`) — 판단 규칙은 PRD, Registry 조회는 Entity 협력 |
+| 설정 외부화 | Boundary (`infrastructure` 역할의 loader) → Entity Registry 주입 |
+| 동적 등록 | Control (`RegisterUnitUseCase`) → Entity Registry |
+| 출력 포맷 | Boundary (`*Formatter`) |
+
+---
+
+### SC-2. Dual-Track TDD (ARRR)
+
+**두 개발 트랙을 병렬이 아닌 순차로 진행한다.** Domain Logic Track이 UI Track보다 **항상 선행**한다.
+
+#### Tracks
+
+| Track | Source | Tests | Scope |
+|-------|--------|-------|-------|
+| **Domain Logic Track** | `src/entity/` | `tests/entity/` | 변환 정확성, Registry, meter 허브, 도메인 예외, 비즈니스 불변식 |
+| **UI Track** | `src/boundary/`, `src/control/` | `tests/boundary/`, `tests/control/` | 파싱, 검증 메시지, 포맷터, UseCase 조율, CLI, 설정 로드 |
+
+#### ARRR Cycle (per feature slice)
+
+각 기능 슬라이스는 아래 순서를 **한 사이클씩** 반복한다.
+
+| Step | Name | Action |
+|------|------|--------|
+| **A** | **Arrange** | PRD/README에서 불변식·수용 기준·테스트 케이스 명시 |
+| **R** | **RED** | 실패 테스트 작성 (`pytest.fail` 또는 import/assert 실패). **구현 코드 금지** |
+| **R** | **Realize (GREEN)** | 테스트를 통과하는 **최소** 구현 |
+| **R** | **Refactor** | OCP/SRP/ECB 정리. **행위 변경 없이** 구조 개선. 테스트 green 유지 |
+
+#### Track Ordering (Hard)
+
+```
+1. tests/entity/  RED → commit → src/entity/  GREEN → refactor → commit
+2. tests/control/ RED → commit → src/control/  GREEN → refactor → commit   (entity green 이후)
+3. tests/boundary/ RED → commit → src/boundary/ GREEN → refactor → commit (해당 control green 이후)
+```
+
+| MUST | MUST NOT |
+|------|----------|
+| `ConvertUseCase` 테스트 전 `ConversionService` entity 테스트 green | Entity 미완성 상태에서 Boundary/CLI 구현 |
+| Domain Track 완료 후 Control Track 착수 | "일단 CLI부터" 접근 |
+| Boundary Track은 Control·Entity API에만 의존 | Boundary 테스트가 미구현 Entity를 가정 |
+
+---
+
+### SC-3. Strict TDD — RED Before GREEN (Implementation Ban)
+
+**`src/` 구현 코드를 테스트보다 먼저 작성하는 것을 절대 금지한다.**
+
+#### Mandatory Workflow
+
+```
+1. Write failing test in tests/{entity|control|boundary}/
+2. Test MUST fail verifiably (pytest.fail("...") or ImportError/AssertionError)
+3. Run: pytest tests/<layer>/ -v  → confirm RED
+4. Commit (or user-approved checkpoint): test-only commit message e.g. "test: RED – ConversionService meter to feet"
+5. ONLY THEN write minimal src/ code
+6. Run pytest → GREEN
+7. Refactor if needed → pytest still GREEN
+8. Commit implementation
+```
+
+#### RED Test Requirements
+
+- 새 기능·버그 수정마다 **새 테스트 또는 확장된 테스트**가 선행한다.
+- RED 단계 테스트에는 의도를 드러내는 `pytest.fail("Not implemented: ...")` 또는 구체적 `assert` 실패가 포함되어야 한다.
+- "나중에 테스트 추가"는 **금지**.
+
+#### Prohibited Actions (AI)
+
+| Forbidden | Reason |
+|-----------|--------|
+| `src/` 파일을 먼저 생성·수정 | SC-3 위반 |
+| 테스트 없이 리팩터링 | 회귀 방지 불가 |
+| RED 확인 없이 GREEN 구현 | 바이브 코딩 |
+| 한 커밋에 테스트+구현 대량 혼합 (사용자 명시 요청 없이) | TDD 추적성 파괴 |
+| `UnitConverter.py` 전체를 한 번에 교체 | 슬라이스 TDD 위반 |
+
+#### Allowed Exception
+
+- 사용자가 **명시적으로** "테스트 스킵" 또는 "스파이크만"을 요청한 경우에만 예외. 예외 시에도 `src/entity/`에는 손대지 않고 스파이크 파일을 별도 표시.
+
+---
+
+### SC-4. Pure Domain — No Mocking in `tests/entity/`
+
+**`tests/entity/` 내부에서는 Mocking 라이브러리 사용을 전면 금지한다.**
+
+#### Prohibited in `tests/entity/`
+
+```python
+# FORBIDDEN
+from unittest.mock import Mock, MagicMock, patch
+import pytest; pytest.MonkeyPatch  # for domain collaborators
+from unittest import mock
+```
+
+#### Required Approach
+
+- **실제 Entity 객체** (`UnitRegistry`, `ConversionService` 등)를 생성하여 협력 관계 검증.
+- 테스트 데이터는 **명시적 상수·fixture**로 Arrange (ARRR-A).
+- 외부 I/O가 필요한 시나리오는 **Entity 테스트가 아닌** `tests/boundary/` 또는 `tests/integration/`으로 이동.
+
+| Layer | Mocking |
+|-------|---------|
+| `tests/entity/` | **금지** — real objects only |
+| `tests/control/` | Entity는 **real**; Boundary port는 fake/stub 허용 (Protocol 구현체) |
+| `tests/boundary/` | 파일 I/O는 `tmp_path` fixture; domain은 **real Entity** 주입 |
+| `tests/integration/` | end-to-end; mock 최소화 |
+
+#### Rationale
+
+- 변환 비율·meter 허브 불변식은 **Mock으로 검증하면 의미 없음**.
+- Mock은 인터페이스를 흉내낼 뿐 **비즈니스 규칙 오류를 숨긴다**.
+
+---
+
+## 3. Repository Layout (Target)
+
+```
+UnitConverter_19/
+├── .cursorrules              # 전체 헌법 SSOT
+├── .cursor/rules/            # SC-1~4 (alwaysApply) — Cursor 자동 적용
+├── README.md
+├── docs/PRD.md
+├── Report/
+├── config/
+│   └── units.json            # FR: 설정 외부화 (Boundary가 로드 → Entity Registry)
+├── src/
+│   ├── entity/               # SC-1 Entity · SC-2 Domain Track · SC-4 no mock tests
+│   ├── control/              # SC-1 Control · SC-2 Control Track
+│   └── boundary/             # SC-1 Boundary · SC-2 UI Track
+├── tests/
+│   ├── entity/               # SC-3 RED first · SC-4 no mocks
+│   ├── control/
+│   ├── boundary/
+│   └── integration/
+├── UnitConverter.py          # legacy; 최종적으로 boundary/cli 위임만
+└── pyproject.toml            # pytest 설정
+```
+
+---
+
+## 4. Implementation Playbook (Ordered Slices)
+
+AI는 아래 슬라이스 순서를 **임의 변경하지 않는다.** 각 슬라이스 = SC-3 RED → GREEN → Refactor.
+
+| # | Slice | Entity (first) | Control | Boundary |
+|---|-------|----------------|---------|----------|
+| 1 | UnitRegistry + ratios | register, to_base, from_base, all_units | — | — |
+| 2 | ConversionService | convert_all, meter hub BR-01~04 | — | — |
+| 3 | Domain exceptions | UnknownUnitError, InvalidValueError | — | — |
+| 4 | ConvertUseCase | (entity green) | orchestrate convert | — |
+| 5 | Input parse/validate | — | — | parser, validator NFR-03~05 |
+| 6 | Table output | — | — | TableFormatter BR-07 |
+| 7 | Config load | — | — | JsonConfigLoader → Registry |
+| 8 | Register unit | Registry.register | RegisterUnitUseCase | registration parser |
+| 9 | JSON/CSV format | — | — | JsonFormatter, CsvFormatter |
+| 10 | CLI | — | — | CliApp thin shell |
+
+---
+
+## 5. Coding Standards
+
+### 5.1 General
+
+- Python 3.10+ 타입 힌트 사용.
+- public API에 docstring (행위·불변식·예외).
+- Magic number 금지 — 비율은 Registry 또는 `config/units.json`.
+- `elif unit == "..."` 체인 금지 (Entity·Control·Boundary 공통).
+
+### 5.2 Entity Purity Checklist
+
+- [ ] stdlib I/O 없음
+- [ ] framework 의존 없음
+- [ ] 순수 함수/클래스로 pytest without mock
+
+### 5.3 Test Naming
+
+```
+tests/entity/test_conversion_service.py::test_meter_to_feet_uses_ratio_3_28084
+tests/boundary/test_input_validator.py::test_rejects_negative_value
+```
+
+### 5.4 Commit Messages (TDD Traceability)
+
+```
+test: RED – ConversionService converts meter to feet
+feat: GREEN – ConversionService meter to feet
+refactor: extract UnitRegistry from ConversionService
+```
+
+---
+
+## 6. AI Agent Operating Rules
+
+### 6.1 Before Any Code Change
+
+1. Read README + PRD 관련 FR/NFR ID 확인.
+2. Identify ECB layer (entity / control / boundary).
+3. Confirm track order (Domain Track 선행 여부).
+4. Plan RED test file path and failing assertion.
+
+### 6.2 During Work
+
+- **한 번에 하나의 슬라이스**, 하나의 ARRR 사이클.
+- scope creep 금지: 요청·PRD에 없는 기능 추가하지 않음.
+- 레거시 `UnitConverter.py` 복붙 리팩터링 금지.
+
+### 6.3 After GREEN
+
+- `pytest` 전체 실행 결과 보고.
+- ECB 의존성 역방향 import 없음 확인.
+- `tests/entity/`에 mock import 없음 확인.
+
+### 6.4 When User Asks to "Just Implement It"
+
+- SC-1~SC-4를 인용하여 **RED 테스트 선행**을 제안.
+- 사용자가 명시적으로 TDD 면제를 요청한 경우에만 SC-3 예외 적용.
+
+---
+
+## 7. Definition of Done (per Feature)
+
+- [ ] PRD FR/NFR ID 매핑 명시
+- [ ] `tests/entity/` — mock 없음, RED→GREEN 이력
+- [ ] ECB 레이어 올바름, 역방향 의존 없음
+- [ ] pytest green
+- [ ] README 비즈니스 규칙 (BR-01~07) 충족
+- [ ] 바이브 코딩 없음 (테스트 선행 증거)
+
+---
+
+## 8. Quick Reference — Constraint Summary
+
+| ID | Constraint | One-Line Rule |
+|----|------------|---------------|
+| **SC-1** | ECB | Entity=도메인, Control=조율, Boundary=파싱·포맷·I/O |
+| **SC-2** | Dual-Track ARRR | `tests/entity/` → `src/entity/` 완료 후 boundary/control |
+| **SC-3** | Strict TDD | `src/` 금지 until RED test committed & failing |
+| **SC-4** | No Entity Mocks | `tests/entity/` = real objects only |
+
+**If in doubt: write a failing test in `tests/entity/` first.**

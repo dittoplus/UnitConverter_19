@@ -1,0 +1,18 @@
+---
+description: SC-3 Strict TDD — no src/ code before failing tests
+alwaysApply: true
+---
+
+# SC-3: RED Before GREEN
+
+**Never create or edit `src/` before a failing test exists.**
+
+Workflow:
+1. Write failing test in `tests/{entity|control|boundary}/`
+2. Run `pytest tests/<layer>/ -v` — confirm RED
+3. Write **minimal** `src/` code to go GREEN
+4. Refactor with tests still green
+
+**Forbidden:** src-first implementation; refactoring without tests; bulk test+impl commits (unless user asks).
+
+Exception: user explicitly requests test skip or spike-only (do not touch `src/entity/` for spikes).
